@@ -10,6 +10,13 @@ const PORT = process.env.PORT || 5000;
 app.use(cors());
 app.use(express.json());
 
+const mongoose = require('mongoose');
+
+// Connect to MongoDB
+mongoose.connect(process.env.MONGO_URI || 'mongodb://localhost:27017/kingdom_enlightenment')
+  .then(() => console.log('MongoDB Connected'))
+  .catch(err => console.log(err));
+
 app.get('/', (req, res) => {
   res.send('Kingdom Enlightenment Missions Team Backend is running!');
 });

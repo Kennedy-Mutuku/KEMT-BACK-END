@@ -22,8 +22,9 @@
   "homepage": "https://github.com/Kennedy-Mutuku/KINGDOM-ENLIGHTENMENT-MISSIONS-TEAM-BACK-END#readme",
   "dependencies": {
     "cors": "^2.8.6",
-    "dotenv": "^17.2.3",
+    "dotenv": "^16.4.5",
     "express": "^5.2.1",
+    "mongoose": "^9.1.5",
     "nodemon": "^3.1.11"
   }
 }
