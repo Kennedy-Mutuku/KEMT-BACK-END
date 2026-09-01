@@ -24,8 +24,12 @@ mongoose.connect(process.env.MONGO_URI || 'mongodb://localhost:27017/kingdom_enl
 // Routes
 const eventsRouter = require('./routes/events');
 const profileRouter = require('./routes/profile');
+const galleryRouter = require('./routes/gallery');
+const contactRouter = require('./routes/contact');
 app.use('/api/events', eventsRouter);
 app.use('/api/profile', profileRouter);
+app.use('/api/gallery', galleryRouter);
+app.use('/api/contact', contactRouter);
 
 app.get('/', (req, res) => {
   res.send('Kingdom Enlightenment Missions Team Backend is running!');
