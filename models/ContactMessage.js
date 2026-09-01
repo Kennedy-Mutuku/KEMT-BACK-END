@@ -76,14 +76,12 @@ const ContactMessageSchema = new mongoose.Schema({
   },
 });
 
-ContactMessageSchema.pre('save', function (next) {
+ContactMessageSchema.pre('save', function () {
   this.updatedAt = Date.now();
-  next();
 });
 
-ContactMessageSchema.pre('findOneAndUpdate', function (next) {
+ContactMessageSchema.pre('findOneAndUpdate', function () {
   this.set({ updatedAt: Date.now() });
-  next();
 });
 
 module.exports = mongoose.model('ContactMessage', ContactMessageSchema);

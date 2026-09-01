@@ -84,14 +84,12 @@ const GallerySchema = new mongoose.Schema({
   },
 });
 
-GallerySchema.pre('save', function (next) {
+GallerySchema.pre('save', function () {
   this.updatedAt = Date.now();
-  next();
 });
 
-GallerySchema.pre('findOneAndUpdate', function (next) {
+GallerySchema.pre('findOneAndUpdate', function () {
   this.set({ updatedAt: Date.now() });
-  next();
 });
 
 module.exports = mongoose.model('Gallery', GallerySchema);
