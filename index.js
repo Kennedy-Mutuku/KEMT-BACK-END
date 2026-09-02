@@ -50,9 +50,14 @@ const MPESA_BASE = process.env.MPESA_ENV === 'production'
   : 'https://sandbox.safaricom.co.ke';
 
 const getMpesaToken = async () => {
-  const auth = Buffer.from(
-    `${process.env.MPESA_CONSUMER_KEY}:${process.env.MPESA_CONSUMER_SECRET}`
-  ).toString('base64');
+  const consumerKey = process.env.MPESA_CONSUMER_KEY ? process.env.MPESA_CONSUMER_KEY.trim() : '';
+  const consumerSecret = process.env.MPESA_CONSUMER_SECRET ? process.env.MPESA_CONSUMER_SECRET.trim() : '';
+
+  if (!consumerKey || !consumerSecret) {
+    throw new Error('M-Pesa Consumer Key or Consumer Secret is missing in environment variables.');
+  }
+
+  const auth = Buffer.from(`${consumerKey}:${consumerSecret}`).toString('base64');
 
   const { data } = await axios.get(
     `${MPESA_BASE}/oauth/v1/generate?grant_type=client_credentials`,
@@ -62,10 +67,13 @@ const getMpesaToken = async () => {
 };
 
 const formatPhone = (phone) => {
-  const cleaned = phone.replace(/\s+/g, '');
-  if (cleaned.startsWith('+254')) return cleaned.slice(1);
-  if (cleaned.startsWith('254'))  return cleaned;
-  if (cleaned.startsWith('0'))    return `254${cleaned.slice(1)}`;
+  if (!phone) return '';
+  let cleaned = String(phone).replace(/[\s\+]/g, '');
+  if (cleaned.startsWith('0')) {
+    cleaned = '254' + cleaned.slice(1);
+  } else if (!cleaned.startsWith('254')) {
+    cleaned = '254' + cleaned;
+  }
   return cleaned;
 };
 
@@ -80,31 +88,52 @@ app.post('/api/donate/mpesa', async (req, res) => {
       return res.status(400).json({ success: false, message: 'Amount and phone number are required.' });
     }
 
+    const parsedAmount = Math.round(Number(amount));
+    if (isNaN(parsedAmount) || parsedAmount < 1) {
+      return res.status(400).json({ success: false, message: 'Please enter a valid donation amount.' });
+    }
+
+    const formattedPhone = formatPhone(phone);
+    if (!/^254[71]\d{8}$/.test(formattedPhone)) {
+      return res.status(400).json({ success: false, message: 'Please enter a valid Safaricom phone number (e.g. 0712345678 or 0110123456).' });
+    }
+
+    const shortCode = process.env.MPESA_SHORTCODE ? process.env.MPESA_SHORTCODE.trim() : '';
+    const passKey = process.env.MPESA_PASSKEY ? process.env.MPESA_PASSKEY.trim() : '';
+    const callbackUrl = process.env.MPESA_CALLBACK_URL ? process.env.MPESA_CALLBACK_URL.trim() : '';
+    const transactionType = process.env.MPESA_TRANSACTION_TYPE || 'CustomerPayBillOnline';
+    const partyB = process.env.MPESA_PARTY_B ? process.env.MPESA_PARTY_B.trim() : shortCode;
+
+    if (!shortCode || !passKey) {
+      return res.status(500).json({
+        success: false,
+        message: 'M-Pesa payment gateway is not configured on server (missing shortcode or passkey).'
+      });
+    }
+
     const token     = await getMpesaToken();
     const timestamp = new Date().toISOString().replace(/[^0-9]/g, '').slice(0, 14);
-    const password  = Buffer.from(
-      `${process.env.MPESA_SHORTCODE}${process.env.MPESA_PASSKEY}${timestamp}`
-    ).toString('base64');
+    const password  = Buffer.from(`${shortCode}${passKey}${timestamp}`).toString('base64');
 
     const { data } = await axios.post(
       `${MPESA_BASE}/mpesa/stkpush/v1/processrequest`,
       {
-        BusinessShortCode: process.env.MPESA_SHORTCODE,
+        BusinessShortCode: shortCode,
         Password:          password,
         Timestamp:         timestamp,
-        TransactionType:   'CustomerPayBillOnline',
-        Amount:            parseInt(amount),
-        PartyA:            formatPhone(phone),
-        PartyB:            process.env.MPESA_SHORTCODE,
-        PhoneNumber:       formatPhone(phone),
-        CallBackURL:       process.env.MPESA_CALLBACK_URL,
-        AccountReference:  'KEMT Ministries',
+        TransactionType:   transactionType,
+        Amount:            parsedAmount,
+        PartyA:            formattedPhone,
+        PartyB:            partyB,
+        PhoneNumber:       formattedPhone,
+        CallBackURL:       callbackUrl || 'https://example.com/api/donate/callback',
+        AccountReference:  process.env.MPESA_ACCOUNT_REF || 'KEMT Ministries',
         TransactionDesc:   'Support KEMT Ministries',
       },
       { headers: { Authorization: `Bearer ${token}` } }
     );
 
-    console.log(`\n💰 M-Pesa STK Push sent | Amount: KES ${amount} | Phone: ${formatPhone(phone)}`);
+    console.log(`\n💰 M-Pesa STK Push sent | Amount: KES ${parsedAmount} | Phone: ${formattedPhone}`);
     res.json({ success: true, data });
 
   } catch (err) {
@@ -112,7 +141,7 @@ app.post('/api/donate/mpesa', async (req, res) => {
     console.error('M-Pesa STK Push error:', mpesaErr || err.message);
     res.status(500).json({
       success: false,
-      message: mpesaErr?.errorMessage || 'Payment initiation failed. Please try again.',
+      message: mpesaErr?.errorMessage || mpesaErr?.ResponseDescription || err.message || 'Payment initiation failed. Please try again.',
     });
   }
 });
