@@ -28,6 +28,7 @@ app.use('/api/events',      require('./routes/events'));
 app.use('/api/messages',    require('./routes/messages'));
 app.use('/api/bible-groups',require('./routes/bibleGroups'));
 app.use('/api/teams',       require('./routes/teams'));
+app.use('/api/gallery',     require('./routes/gallery'));
 app.use('/api/donate',      require('./routes/donate'));
 
 // ─── Health check ─────────────────────────────────────────────────────────────

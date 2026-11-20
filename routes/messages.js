@@ -11,6 +11,34 @@ router.get('/', async (req, res) => {
   }
 });
 
+// POST /api/messages — create/submit message directly to DB
+router.post('/', async (req, res) => {
+  try {
+    const { name, email, phone, subject, message, category, residence, skills, institution, isUrgent } = req.body;
+
+    if (!name || !email || !message) {
+      return res.status(400).json({ success: false, message: 'Name, email and message are required.' });
+    }
+
+    const newMessage = await Message.create({
+      name:        name.trim(),
+      email:       email.trim(),
+      phone:       phone ? phone.trim() : '',
+      subject:     subject ? subject.trim() : '',
+      message:     message.trim(),
+      category:    category || 'General Inquiry',
+      residence:   residence ? residence.trim() : '',
+      skills:      skills ? skills.trim() : '',
+      institution: institution ? institution.trim() : '',
+      isUrgent:    Boolean(isUrgent),
+    });
+
+    res.status(201).json({ success: true, message: 'Message received and stored in database.', data: newMessage });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
 // PATCH /api/messages/:id/read — toggle read status
 router.patch('/:id/read', async (req, res) => {
   try {
