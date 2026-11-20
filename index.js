@@ -16,7 +16,7 @@ app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 // ─── Database ─────────────────────────────────────────────────────────────────
 mongoose
-  .connect(process.env.MONGO_URI || 'mongodb://localhost:27017/kingdom_enlightenment')
+  .connect(process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/kingdom_enlightenment')
   .then(() => console.log('MongoDB Connected'))
   .catch(err => console.error('MongoDB connection error:', err.message));
 
