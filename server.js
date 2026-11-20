@@ -283,6 +283,26 @@ const storage = multer.diskStorage({
 });
 const upload = multer({ storage });
 
+const newsImageFilter = (req, file, cb) => {
+  if (file.mimetype.startsWith('image/')) {
+    cb(null, true);
+  } else {
+    cb(new multer.MulterError('LIMIT_UNEXPECTED_FILE', file.fieldname));
+  }
+};
+
+const newsUpload = multer({
+  storage: multer.diskStorage({
+    destination: (req, file, cb) => cb(null, uploadsDir),
+    filename: (req, file, cb) => {
+      const ext = path.extname(file.originalname).toLowerCase();
+      cb(null, `news-${Date.now()}-${Math.round(Math.random() * 1e9)}${ext}`);
+    }
+  }),
+  fileFilter: newsImageFilter,
+  limits: { fileSize: 5 * 1024 * 1024 }
+});
+
 // Email Transporter for Contact Messages
 const createTransporter = () => {
   if (process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS) {
@@ -1155,7 +1175,11 @@ app.delete('/api/members/:id', (req, res) => {
 
 // GET /api/news - List all news articles (sorted by date descending)
 app.get('/api/news', (req, res) => {
+  const { category } = req.query;
   const news = getNews();
+  if (category && category !== 'all') {
+    return res.json(news.filter(item => item.category === category));
+  }
   res.json(news);
 });
 
@@ -1170,7 +1194,7 @@ app.get('/api/news/:id', (req, res) => {
 });
 
 // POST /api/news - Admin uploads new article/news
-app.post('/api/news', upload.single('image'), (req, res) => {
+app.post('/api/news', newsUpload.single('image'), (req, res) => {
   const { title, category, date, location, summary, content, author } = req.body;
 
   if (!title || !summary) {
@@ -1202,7 +1226,7 @@ app.post('/api/news', upload.single('image'), (req, res) => {
 });
 
 // PUT /api/news/:id - Admin edits news article
-app.put('/api/news/:id', upload.single('image'), (req, res) => {
+app.put('/api/news/:id', newsUpload.single('image'), (req, res) => {
   const { id } = req.params;
   const { title, category, date, location, summary, content, author } = req.body;
 
@@ -1210,6 +1234,7 @@ app.put('/api/news/:id', upload.single('image'), (req, res) => {
   const index = news.findIndex(n => n._id === id);
 
   if (index === -1) {
+    if (req.file) fs.unlinkSync(path.join(uploadsDir, req.file.filename));
     return res.status(404).json({ success: false, message: 'News article not found.' });
   }
 
@@ -1230,6 +1255,11 @@ app.put('/api/news/:id', upload.single('image'), (req, res) => {
   news[index] = updatedItem;
   saveNews(news);
 
+  if (req.file && existing.imageUrl) {
+    const existingPath = path.join(__dirname, existing.imageUrl.replace(/^\//, '').replace(/\//g, path.sep));
+    if (existingPath.startsWith(uploadsDir) && fs.existsSync(existingPath)) fs.unlinkSync(existingPath);
+  }
+
   res.json({
     success: true,
     message: 'News article updated successfully.',
@@ -1241,13 +1271,17 @@ app.put('/api/news/:id', upload.single('image'), (req, res) => {
 app.delete('/api/news/:id', (req, res) => {
   const { id } = req.params;
   const news = getNews();
-  const filtered = news.filter(n => n._id !== id);
+  const item = news.find(n => n._id === id);
 
-  if (news.length === filtered.length) {
+  if (!item) {
     return res.status(404).json({ success: false, message: 'News article not found.' });
   }
 
-  saveNews(filtered);
+  saveNews(news.filter(n => n._id !== id));
+  if (item.imageUrl) {
+    const imagePath = path.join(__dirname, item.imageUrl.replace(/^\//, '').replace(/\//g, path.sep));
+    if (imagePath.startsWith(uploadsDir) && fs.existsSync(imagePath)) fs.unlinkSync(imagePath);
+  }
   res.json({ success: true, message: 'News article deleted successfully.' });
 });
 
