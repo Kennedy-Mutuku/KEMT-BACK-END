@@ -1019,9 +1019,9 @@ app.post('/api/members', (req, res) => {
 });
 
 // PUT /api/members/:id - Admin edits member details (passwords cannot be viewed)
-app.put('/api/members/:id', (req, res) => {
+app.put('/api/members/:id', async (req, res) => {
   const { id } = req.params;
-  const { name, email, phone, department, residence, status, role, newPassword } = req.body;
+  const { name, email, phone, department, residence, status, role, newPassword, notifyMember } = req.body;
 
   const members = getMembers();
   const index = members.findIndex(m => m._id === id);
@@ -1031,6 +1031,7 @@ app.put('/api/members/:id', (req, res) => {
   }
 
   const existing = members[index];
+  const prevStatus = existing.status;
 
   // If email is changing, verify not taken by someone else
   if (email && email.trim().toLowerCase() !== existing.email.toLowerCase()) {
@@ -1056,6 +1057,54 @@ app.put('/api/members/:id', (req, res) => {
   existing.updatedAt = new Date().toISOString();
   members[index] = existing;
   saveMembers(members);
+
+  // Send notification email to member if requested
+  if (notifyMember && existing.email) {
+    try {
+      const transporter = createTransporter();
+      if (transporter) {
+        const statusChanged = prevStatus !== existing.status;
+        const passwordChanged = newPassword && newPassword.trim().length >= 6;
+
+        const emailHtml = `
+          <div style="font-family: 'Segoe UI', Arial, sans-serif; max-width: 560px; margin: 0 auto; background: #fff; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 20px rgba(0,0,0,0.08);">
+            <div style="background: linear-gradient(135deg, #1e3a5f, #E87D1E); padding: 32px 36px; text-align: center;">
+              <h1 style="color: #fff; margin: 0; font-size: 1.5rem; font-weight: 800; letter-spacing: 0.5px;">Kingdom Enlightenment</h1>
+              <p style="color: rgba(255,255,255,0.85); margin: 6px 0 0; font-size: 0.9rem;">Missions Team • Member Portal</p>
+            </div>
+            <div style="padding: 32px 36px;">
+              <p style="color: #1e293b; font-size: 1rem; font-weight: 600; margin: 0 0 8px;">Hello ${sanitize(existing.name)},</p>
+              <p style="color: #64748b; margin: 0 0 20px; line-height: 1.6;">Your membership profile has been updated by the KEMT administrator. Here is a summary of what changed:</p>
+              <div style="background: #f8fafc; border-radius: 8px; padding: 20px; border: 1px solid #e2e8f0; margin-bottom: 20px;">
+                <table style="width: 100%; border-collapse: collapse;">
+                  <tr><td style="padding: 8px 0; color: #64748b; font-size: 0.88rem; width: 40%;">Name</td><td style="padding: 8px 0; color: #1e293b; font-weight: 600; font-size: 0.88rem;">${sanitize(existing.name)}</td></tr>
+                  <tr><td style="padding: 8px 0; color: #64748b; font-size: 0.88rem;">Department</td><td style="padding: 8px 0; color: #1e293b; font-weight: 600; font-size: 0.88rem;">${sanitize(existing.department)}</td></tr>
+                  <tr><td style="padding: 8px 0; color: #64748b; font-size: 0.88rem;">Residence</td><td style="padding: 8px 0; color: #1e293b; font-weight: 600; font-size: 0.88rem;">${sanitize(existing.residence || 'Not specified')}</td></tr>
+                  <tr><td style="padding: 8px 0; color: #64748b; font-size: 0.88rem;">Account Status</td><td style="padding: 8px 0; font-weight: 700; font-size: 0.88rem; color: ${existing.status === 'Active' ? '#166534' : '#dc2626'};">${existing.status}${statusChanged ? ' ⚠️ (Changed)' : ''}</td></tr>
+                  ${passwordChanged ? '<tr><td style="padding: 8px 0; color: #64748b; font-size: 0.88rem;">Password</td><td style="padding: 8px 0; color: #E87D1E; font-weight: 600; font-size: 0.88rem;">Reset by admin — please update when you next log in.</td></tr>' : ''}
+                </table>
+              </div>
+              ${statusChanged && existing.status === 'Inactive' ? '<div style="background: #fef2f2; border: 1px solid #fecaca; border-radius: 8px; padding: 14px 18px; margin-bottom: 20px; color: #dc2626; font-size: 0.88rem;"><strong>⚠️ Account Deactivated:</strong> Your account has been set to Inactive. Contact the administrator at info@kingdomenlightenment.org for assistance.</div>' : ''}
+              ${statusChanged && existing.status === 'Active' ? '<div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 14px 18px; margin-bottom: 20px; color: #166534; font-size: 0.88rem;"><strong>✅ Account Activated:</strong> Your account is now active. You can log in and access your member portal.</div>' : ''}
+              <p style="color: #64748b; font-size: 0.85rem; line-height: 1.6; margin: 0;">If you believe this change was made in error or have any questions, please contact us at <a href="mailto:info@kingdomenlightenment.org" style="color: #E87D1E; font-weight: 600; text-decoration: none;">info@kingdomenlightenment.org</a> or call <strong>+254 714 476 295</strong>.</p>
+            </div>
+            <div style="background: #f8fafc; padding: 18px 36px; text-align: center; border-top: 1px solid #e2e8f0;">
+              <p style="color: #94a3b8; font-size: 0.78rem; margin: 0;">© ${new Date().getFullYear()} Kingdom Enlightenment Missions Team • Nairobi, Kenya</p>
+            </div>
+          </div>`;
+
+        await transporter.sendMail({
+          from: `"KEMT Admin" <${process.env.SMTP_USER}>`,
+          to: existing.email,
+          subject: `Your KEMT Member Profile Has Been Updated`,
+          html: emailHtml
+        });
+      }
+    } catch (mailErr) {
+      console.error('Member notification email failed:', mailErr.message);
+      // Don't fail the request because of email
+    }
+  }
 
   res.json({
     success: true,
