@@ -48,6 +48,165 @@ const eventsFilePath = path.join(dataDir, 'events.json');
 const messagesFilePath = path.join(dataDir, 'messages.json');
 const teamsFilePath = path.join(dataDir, 'teams.json');
 const bibleGroupsFilePath = path.join(dataDir, 'bible_groups.json');
+const membersFilePath = path.join(dataDir, 'members.json');
+const newsFilePath = path.join(dataDir, 'news.json');
+
+// --- SANITIZE MEMBER (Never expose password hash) ---
+const sanitizeMember = (member) => {
+  if (!member) return null;
+  const { passwordHash, ...safe } = member;
+  return safe;
+};
+
+// --- MEMBERS HELPERS ---
+const INITIAL_MEMBERS = [
+  {
+    _id: 'mem-1',
+    name: 'Faith Chebet',
+    email: 'faithchebet@gmail.com',
+    phone: '+254 722 123 456',
+    department: 'Praise and Worship',
+    residence: 'Nairobi Central',
+    role: 'Member',
+    status: 'Active',
+    passwordHash: bcrypt.hashSync('Member@2026', 10),
+    joinedAt: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()
+  },
+  {
+    _id: 'mem-2',
+    name: 'Brian Kiptoo',
+    email: 'briankiptoo@gmail.com',
+    phone: '+254 733 987 654',
+    department: 'Outreach & Missions',
+    residence: 'Meru Central',
+    role: 'Member',
+    status: 'Active',
+    passwordHash: bcrypt.hashSync('Member@2026', 10),
+    joinedAt: new Date(Date.now() - 20 * 24 * 60 * 60 * 1000).toISOString()
+  },
+  {
+    _id: 'mem-3',
+    name: 'Mercy Achieng',
+    email: 'mercyachieng@gmail.com',
+    phone: '+254 715 554 321',
+    department: 'Prayer Department',
+    residence: 'Machakos',
+    role: 'Member',
+    status: 'Active',
+    passwordHash: bcrypt.hashSync('Member@2026', 10),
+    joinedAt: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000).toISOString()
+  },
+  {
+    _id: 'mem-4',
+    name: 'Dennis Mutua',
+    email: 'dennismutua@gmail.com',
+    phone: '+254 701 443 219',
+    department: 'Digital Infrastructure',
+    residence: 'Emali',
+    role: 'Member',
+    status: 'Active',
+    passwordHash: bcrypt.hashSync('Member@2026', 10),
+    joinedAt: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString()
+  }
+];
+
+const getMembers = () => {
+  if (!fs.existsSync(membersFilePath)) {
+    fs.writeFileSync(membersFilePath, JSON.stringify(INITIAL_MEMBERS, null, 2));
+    return INITIAL_MEMBERS;
+  }
+  try {
+    const raw = fs.readFileSync(membersFilePath, 'utf-8');
+    const parsed = JSON.parse(raw || '[]');
+    if (parsed.length === 0) {
+      fs.writeFileSync(membersFilePath, JSON.stringify(INITIAL_MEMBERS, null, 2));
+      return INITIAL_MEMBERS;
+    }
+    return parsed;
+  } catch (err) {
+    console.error('Error reading members:', err);
+    return INITIAL_MEMBERS;
+  }
+};
+
+const saveMembers = (members) => {
+  fs.writeFileSync(membersFilePath, JSON.stringify(members, null, 2));
+};
+
+// --- NEWS HELPERS ---
+const INITIAL_NEWS = [
+  {
+    _id: 'news-1',
+    title: 'Ntakira Mission: Carrying the Gospel to Meru',
+    category: 'Missions',
+    date: 'August 2026 — Meru',
+    location: 'Meru',
+    summary: 'The Ntakira mission brought the Gospel through crusades, revivals, street evangelism and youth mentorship at Methodist Church of Kenya, Ntakira Parish.',
+    content: 'The Kingdom Enlightenment Missions Team carried out a deeply transformative missionary journey in Ntakira, Meru County. Believers from all corners came together in unity, praying for community breakthroughs and ministering to youth and local schools. Dozens surrendered their lives to Christ and were connected to local discipleship fellowships.',
+    imageUrl: '',
+    author: 'KEMT Missions Outreach',
+    createdAt: new Date(Date.now() - 25 * 24 * 60 * 60 * 1000).toISOString()
+  },
+  {
+    _id: 'news-2',
+    title: 'Emali Mission: 76 Souls Give Their Lives to Christ',
+    category: 'Outreach',
+    date: 'August 2026 — Makueni & Kajiado',
+    location: 'Makueni & Kajiado',
+    summary: 'The Emali mission at Methodist Church of Kenya saw 76 people surrender their lives to Christ through evangelism, prayer walks, crusades and compassion outreach.',
+    content: 'During our joint mission in Emali spanning Makueni and Kajiado border territories, the Lord displayed His mighty saving grace. Street ministry, door-to-door evangelism, medical and welfare compassion distributions accompanied the nightly revival crusades.',
+    imageUrl: '',
+    author: 'Revival Communications',
+    createdAt: new Date(Date.now() - 18 * 24 * 60 * 60 * 1000).toISOString()
+  },
+  {
+    _id: 'news-3',
+    title: 'Tala Mission: 170 Souls Saved in Machakos',
+    category: 'Missions',
+    date: 'April 2026 — Machakos',
+    location: 'Machakos',
+    summary: 'Liberty Church, Tala hosted a powerful week-long outreach that saw 170 people come to Christ through street evangelism, prayer walks, crusades and youth workshops.',
+    content: 'In Tala, Machakos County, our team partnered with Liberty Church to hold a transformative week-long youth campaign. 170 souls made public commitments to Jesus Christ, and numerous youth discipleship circles were established to ensure sustained spiritual growth.',
+    imageUrl: '',
+    author: 'KEMT Media',
+    createdAt: new Date(Date.now() - 12 * 24 * 60 * 60 * 1000).toISOString()
+  },
+  {
+    _id: 'news-4',
+    title: 'Gikumene Mission: Reaching Meru for Christ',
+    category: 'Missions',
+    date: 'Dec 2025 - Jan 2026 — Meru',
+    location: 'Meru',
+    summary: 'Impactful moments from the Gikumene mission, featuring community outreach, dynamic youth engagements, and open-air crusades.',
+    content: 'Spanning the cross-over revival season, the Gikumene Mission brought hundreds together for spiritual renewal, prayer vigils, high school mentoring sessions and open-air preaching of the gospel.',
+    imageUrl: '',
+    author: 'KEMT Missions Team',
+    createdAt: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString()
+  }
+];
+
+const getNews = () => {
+  if (!fs.existsSync(newsFilePath)) {
+    fs.writeFileSync(newsFilePath, JSON.stringify(INITIAL_NEWS, null, 2));
+    return INITIAL_NEWS;
+  }
+  try {
+    const raw = fs.readFileSync(newsFilePath, 'utf-8');
+    const parsed = JSON.parse(raw || '[]');
+    if (parsed.length === 0) {
+      fs.writeFileSync(newsFilePath, JSON.stringify(INITIAL_NEWS, null, 2));
+      return INITIAL_NEWS;
+    }
+    return parsed;
+  } catch (err) {
+    console.error('Error reading news:', err);
+    return INITIAL_NEWS;
+  }
+};
+
+const saveNews = (news) => {
+  fs.writeFileSync(newsFilePath, JSON.stringify(news, null, 2));
+};
 
 // --- EVENTS HELPERS ---
 const getEvents = () => {
@@ -140,20 +299,50 @@ const createTransporter = () => {
   return null;
 };
 
-// --- AUTH ROUTE ---
+// --- AUTH ROUTES ---
 app.post('/api/auth/login', (req, res) => {
   const { email, password } = req.body;
-  
-  // Secure bcrypt password verification
-  if (password && typeof password === 'string' && bcrypt.compareSync(password, ADMIN_PASSWORD_HASH)) {
+  const cleanEmail = (email || '').trim().toLowerCase();
+  const cleanPassword = (password || '').trim();
+
+  if (!cleanEmail || !cleanPassword) {
+    return res.status(400).json({ success: false, message: 'Email and password are required.' });
+  }
+
+  // 1. Check Admin Credentials
+  const isAdminEmail = cleanEmail === 'info@kingdomenlightenment.org' || cleanEmail.endsWith('@kingdomenlightenment.org');
+  if (isAdminEmail && bcrypt.compareSync(cleanPassword, ADMIN_PASSWORD_HASH)) {
     return res.json({
       success: true,
       token: 'kemt_token_' + Date.now(),
       user: {
         name: 'KEMT Administrator',
-        email: email ? sanitize(email) : 'info@kingdomenlightenment.org',
+        email: cleanEmail,
         role: 'Super Admin',
+        isAdmin: true,
         profileImageUrl: '/kemt-favicon.jpg'
+      }
+    });
+  }
+
+  // 2. Check Registered Member Accounts
+  const members = getMembers();
+  const member = members.find(m => (m.email || '').toLowerCase() === cleanEmail);
+
+  if (member && member.passwordHash && bcrypt.compareSync(cleanPassword, member.passwordHash)) {
+    if (member.status === 'Inactive') {
+      return res.status(403).json({
+        success: false,
+        message: 'Your member account is currently inactive. Please contact the administrator.'
+      });
+    }
+
+    return res.json({
+      success: true,
+      token: 'kemt_member_token_' + Date.now(),
+      user: {
+        ...sanitizeMember(member),
+        isAdmin: false
       }
     });
   }
@@ -163,6 +352,64 @@ app.post('/api/auth/login', (req, res) => {
     message: 'Invalid credentials. Please verify your email and password.'
   });
 });
+
+// Member Self-Registration (Sign Up)
+const handleMemberSignup = (req, res) => {
+  const { name, email, phone, department, residence, password } = req.body;
+
+  if (!name || !email || !password) {
+    return res.status(400).json({
+      success: false,
+      message: 'Full name, email address, and password are required.'
+    });
+  }
+
+  const cleanEmail = email.trim().toLowerCase();
+  const members = getMembers();
+
+  if (members.some(m => (m.email || '').toLowerCase() === cleanEmail)) {
+    return res.status(409).json({
+      success: false,
+      message: 'An account with this email address already exists. Please log in.'
+    });
+  }
+
+  if (password.length < 6) {
+    return res.status(400).json({
+      success: false,
+      message: 'Password must be at least 6 characters long.'
+    });
+  }
+
+  const newMember = {
+    _id: 'mem-' + Date.now(),
+    name: sanitize(name.trim()),
+    email: cleanEmail,
+    phone: phone ? sanitize(phone.trim()) : '',
+    department: department ? sanitize(department.trim()) : 'General Ministry',
+    residence: residence ? sanitize(residence.trim()) : '',
+    role: 'Member',
+    status: 'Active',
+    passwordHash: bcrypt.hashSync(password, 10),
+    joinedAt: new Date().toISOString()
+  };
+
+  members.unshift(newMember);
+  saveMembers(members);
+
+  return res.status(201).json({
+    success: true,
+    message: 'Account created successfully! Welcome to Kingdom Enlightenment Missions Team.',
+    token: 'kemt_member_token_' + Date.now(),
+    user: {
+      ...sanitizeMember(newMember),
+      isAdmin: false
+    }
+  });
+};
+
+app.post('/api/auth/register', handleMemberSignup);
+app.post('/api/members/signup', handleMemberSignup);
 
 // --- PROFILE ROUTE ---
 app.get('/api/profile', (req, res) => {
@@ -178,12 +425,18 @@ app.get('/api/profile', (req, res) => {
 app.get('/api/admin/stats', (req, res) => {
   const events = getEvents();
   const messages = getMessages();
+  const members = getMembers();
+  const news = getNews();
   const unreadMessages = messages.filter(m => !m.isRead).length;
+  const activeMembers = members.filter(m => m.status === 'Active').length;
 
   res.json({
     totalEvents: events.length,
     totalMessages: messages.length,
-    unreadMessages: unreadMessages
+    unreadMessages: unreadMessages,
+    totalMembers: members.length,
+    activeMembers: activeMembers,
+    totalNews: news.length
   });
 });
 
@@ -682,6 +935,271 @@ app.delete('/api/bible-groups/:id', (req, res) => {
   const groups = getBibleGroups().filter(g => g.id !== req.params.id);
   saveBibleGroups(groups);
   res.json({ success: true });
+});
+
+// ── MEMBERS MANAGEMENT ROUTES ────────────────────────────────────────────────
+
+// GET /api/members - List members with search and filtering (NEVER returns password hashes)
+app.get('/api/members', (req, res) => {
+  const { search, status, department } = req.query;
+  let members = getMembers();
+
+  if (status && status !== 'all') {
+    members = members.filter(m => (m.status || '').toLowerCase() === status.toLowerCase());
+  }
+
+  if (department && department !== 'all') {
+    members = members.filter(m => (m.department || '').toLowerCase() === department.toLowerCase());
+  }
+
+  if (search) {
+    const q = search.toLowerCase();
+    members = members.filter(m => 
+      (m.name || '').toLowerCase().includes(q) ||
+      (m.email || '').toLowerCase().includes(q) ||
+      (m.phone || '').toLowerCase().includes(q) ||
+      (m.residence || '').toLowerCase().includes(q) ||
+      (m.department || '').toLowerCase().includes(q)
+    );
+  }
+
+  // Sanitize all members so passwordHash is NEVER exposed to admin or user
+  const sanitized = members.map(sanitizeMember);
+  res.json(sanitized);
+});
+
+// GET /api/members/:id - Single member
+app.get('/api/members/:id', (req, res) => {
+  const members = getMembers();
+  const member = members.find(m => m._id === req.params.id);
+  if (!member) {
+    return res.status(404).json({ success: false, message: 'Member not found.' });
+  }
+  res.json(sanitizeMember(member));
+});
+
+// POST /api/members - Admin onboards a new member
+app.post('/api/members', (req, res) => {
+  const { name, email, phone, department, residence, status = 'Active', role = 'Member', password } = req.body;
+
+  if (!name || !email) {
+    return res.status(400).json({ success: false, message: 'Name and email are required to onboard a member.' });
+  }
+
+  const cleanEmail = email.trim().toLowerCase();
+  const members = getMembers();
+
+  if (members.some(m => (m.email || '').toLowerCase() === cleanEmail)) {
+    return res.status(409).json({ success: false, message: 'A member with this email address already exists.' });
+  }
+
+  const defaultPassword = password && password.trim() ? password.trim() : 'KEMTmember2026';
+
+  const newMember = {
+    _id: 'mem-' + Date.now(),
+    name: sanitize(name.trim()),
+    email: cleanEmail,
+    phone: phone ? sanitize(phone.trim()) : '',
+    department: department ? sanitize(department.trim()) : 'General Ministry',
+    residence: residence ? sanitize(residence.trim()) : '',
+    role: role ? sanitize(role.trim()) : 'Member',
+    status: status === 'Inactive' ? 'Inactive' : 'Active',
+    passwordHash: bcrypt.hashSync(defaultPassword, 10),
+    joinedAt: new Date().toISOString()
+  };
+
+  members.unshift(newMember);
+  saveMembers(members);
+
+  res.status(201).json({
+    success: true,
+    message: 'Member onboarded successfully.',
+    member: sanitizeMember(newMember)
+  });
+});
+
+// PUT /api/members/:id - Admin edits member details (passwords cannot be viewed)
+app.put('/api/members/:id', (req, res) => {
+  const { id } = req.params;
+  const { name, email, phone, department, residence, status, role, newPassword } = req.body;
+
+  const members = getMembers();
+  const index = members.findIndex(m => m._id === id);
+
+  if (index === -1) {
+    return res.status(404).json({ success: false, message: 'Member not found.' });
+  }
+
+  const existing = members[index];
+
+  // If email is changing, verify not taken by someone else
+  if (email && email.trim().toLowerCase() !== existing.email.toLowerCase()) {
+    const cleanEmail = email.trim().toLowerCase();
+    if (members.some(m => m._id !== id && (m.email || '').toLowerCase() === cleanEmail)) {
+      return res.status(409).json({ success: false, message: 'Email address already in use by another member.' });
+    }
+    existing.email = cleanEmail;
+  }
+
+  if (name) existing.name = sanitize(name.trim());
+  if (phone !== undefined) existing.phone = sanitize(phone.trim());
+  if (department !== undefined) existing.department = sanitize(department.trim());
+  if (residence !== undefined) existing.residence = sanitize(residence.trim());
+  if (status !== undefined) existing.status = status === 'Inactive' ? 'Inactive' : 'Active';
+  if (role !== undefined) existing.role = sanitize(role.trim());
+
+  // Password reset optional, but never returned
+  if (newPassword && newPassword.trim().length >= 6) {
+    existing.passwordHash = bcrypt.hashSync(newPassword.trim(), 10);
+  }
+
+  existing.updatedAt = new Date().toISOString();
+  members[index] = existing;
+  saveMembers(members);
+
+  res.json({
+    success: true,
+    message: 'Member details updated successfully.',
+    member: sanitizeMember(existing)
+  });
+});
+
+// PATCH /api/members/:id/status - Quick status toggle (Active / Inactive)
+app.patch('/api/members/:id/status', (req, res) => {
+  const { id } = req.params;
+  const { status } = req.body;
+
+  const members = getMembers();
+  const index = members.findIndex(m => m._id === id);
+
+  if (index === -1) {
+    return res.status(404).json({ success: false, message: 'Member not found.' });
+  }
+
+  const newStatus = status ? status : (members[index].status === 'Active' ? 'Inactive' : 'Active');
+  members[index].status = newStatus;
+  members[index].updatedAt = new Date().toISOString();
+  saveMembers(members);
+
+  res.json({
+    success: true,
+    message: `Member status updated to ${newStatus}.`,
+    member: sanitizeMember(members[index])
+  });
+});
+
+// DELETE /api/members/:id - Delete a member
+app.delete('/api/members/:id', (req, res) => {
+  const { id } = req.params;
+  const members = getMembers();
+  const filtered = members.filter(m => m._id !== id);
+
+  if (members.length === filtered.length) {
+    return res.status(404).json({ success: false, message: 'Member not found.' });
+  }
+
+  saveMembers(filtered);
+  res.json({ success: true, message: 'Member removed successfully.' });
+});
+
+// ── NEWS & ANNOUNCEMENTS ROUTES ──────────────────────────────────────────────
+
+// GET /api/news - List all news articles (sorted by date descending)
+app.get('/api/news', (req, res) => {
+  const news = getNews();
+  res.json(news);
+});
+
+// GET /api/news/:id - Get single news article
+app.get('/api/news/:id', (req, res) => {
+  const news = getNews();
+  const item = news.find(n => n._id === req.params.id);
+  if (!item) {
+    return res.status(404).json({ success: false, message: 'News item not found.' });
+  }
+  res.json(item);
+});
+
+// POST /api/news - Admin uploads new article/news
+app.post('/api/news', upload.single('image'), (req, res) => {
+  const { title, category, date, location, summary, content, author } = req.body;
+
+  if (!title || !summary) {
+    return res.status(400).json({ success: false, message: 'Title and summary are required.' });
+  }
+
+  const news = getNews();
+  const newItem = {
+    _id: 'news-' + Date.now(),
+    title: sanitize(title.trim()),
+    category: category ? sanitize(category.trim()) : 'Missions',
+    date: date ? sanitize(date.trim()) : new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' }),
+    location: location ? sanitize(location.trim()) : 'Kenya',
+    summary: sanitize(summary.trim()),
+    content: content ? sanitize(content.trim()) : sanitize(summary.trim()),
+    imageUrl: req.file ? `uploads/${req.file.filename}` : '',
+    author: author ? sanitize(author.trim()) : 'KEMT Admin',
+    createdAt: new Date().toISOString()
+  };
+
+  news.unshift(newItem);
+  saveNews(news);
+
+  res.status(201).json({
+    success: true,
+    message: 'News article published successfully.',
+    news: newItem
+  });
+});
+
+// PUT /api/news/:id - Admin edits news article
+app.put('/api/news/:id', upload.single('image'), (req, res) => {
+  const { id } = req.params;
+  const { title, category, date, location, summary, content, author } = req.body;
+
+  const news = getNews();
+  const index = news.findIndex(n => n._id === id);
+
+  if (index === -1) {
+    return res.status(404).json({ success: false, message: 'News article not found.' });
+  }
+
+  const existing = news[index];
+  const updatedItem = {
+    ...existing,
+    title: title ? sanitize(title.trim()) : existing.title,
+    category: category ? sanitize(category.trim()) : existing.category,
+    date: date ? sanitize(date.trim()) : existing.date,
+    location: location ? sanitize(location.trim()) : existing.location,
+    summary: summary ? sanitize(summary.trim()) : existing.summary,
+    content: content ? sanitize(content.trim()) : existing.content,
+    author: author ? sanitize(author.trim()) : existing.author,
+    imageUrl: req.file ? `uploads/${req.file.filename}` : existing.imageUrl,
+    updatedAt: new Date().toISOString()
+  };
+
+  news[index] = updatedItem;
+  saveNews(news);
+
+  res.json({
+    success: true,
+    message: 'News article updated successfully.',
+    news: updatedItem
+  });
+});
+
+// DELETE /api/news/:id - Admin deletes news article
+app.delete('/api/news/:id', (req, res) => {
+  const { id } = req.params;
+  const news = getNews();
+  const filtered = news.filter(n => n._id !== id);
+
+  if (news.length === filtered.length) {
+    return res.status(404).json({ success: false, message: 'News article not found.' });
+  }
+
+  saveNews(filtered);
+  res.json({ success: true, message: 'News article deleted successfully.' });
 });
 
 // Start Server
