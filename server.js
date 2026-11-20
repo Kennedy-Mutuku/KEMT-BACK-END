@@ -287,7 +287,9 @@ const newsImageFilter = (req, file, cb) => {
   if (file.mimetype.startsWith('image/')) {
     cb(null, true);
   } else {
-    cb(new multer.MulterError('LIMIT_UNEXPECTED_FILE', file.fieldname));
+    const error = new multer.MulterError('LIMIT_UNEXPECTED_FILE', file.fieldname);
+    error.message = 'Only image files are allowed.';
+    cb(error);
   }
 };
 
@@ -1283,6 +1285,17 @@ app.delete('/api/news/:id', (req, res) => {
     if (imagePath.startsWith(uploadsDir) && fs.existsSync(imagePath)) fs.unlinkSync(imagePath);
   }
   res.json({ success: true, message: 'News article deleted successfully.' });
+});
+
+app.use((err, req, res, next) => {
+  if (err instanceof multer.MulterError) {
+    const isFileTooLarge = err.code === 'LIMIT_FILE_SIZE';
+    return res.status(isFileTooLarge ? 413 : 400).json({
+      success: false,
+      message: isFileTooLarge ? 'News images must be 5 MB or smaller.' : err.message
+    });
+  }
+  next(err);
 });
 
 // Start Server
