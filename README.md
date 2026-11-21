@@ -118,6 +118,18 @@ Categories: `General Inquiry`, `Volunteering`, `Bible Study`, `Partnership`, `Pr
 
 ---
 
+### News & Updates
+
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/api/news` | List published news articles |
+| `GET` | `/api/news?category=Missions` | Filter articles by category |
+| `POST` | `/api/news` | Publish article (multipart: `title`, `category`, `date`, `location`, `summary`, `content`, `author`, `image`) |
+| `PUT` | `/api/news/:id` | Update an article |
+| `DELETE` | `/api/news/:id` | Delete an article |
+
+---
+
 ### Ministry Teams
 
 | Method | Endpoint | Description |
