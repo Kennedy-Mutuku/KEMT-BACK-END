@@ -52,6 +52,8 @@ const membersFilePath = path.join(dataDir, 'members.json');
 const newsFilePath = path.join(dataDir, 'news.json');
 const attendanceSessionsFilePath = path.join(dataDir, 'attendance_sessions.json');
 const attendanceRecordsFilePath = path.join(dataDir, 'attendance_records.json');
+const leadershipFilePath = path.join(dataDir, 'leadership.json');
+const donationsFilePath = path.join(dataDir, 'donations.json');
 
 // --- SANITIZE MEMBER (Never expose password hash) ---
 const sanitizeMember = (member) => {
@@ -1824,6 +1826,268 @@ app.get('/api/attendance/reports', (req, res) => {
     sessions,
     records: finalRecords
   });
+});
+
+// ── LEADERSHIP COUNCIL & GIVING MODULE ─────────────────────────────────────
+
+const INITIAL_LEADERSHIP = [
+  { _id: 'ldr-1', name: 'Vincent Mwendwa', role: 'Director', department: 'Executive Directorate', email: 'director@kingdomenlightenment.org', phone: '+254 714 476 295', initials: 'VM', color: '#e67e22', image: '/assets/Vincent Mwenda.jpeg', order: 1, status: 'Active Leadership' },
+  { _id: 'ldr-2', name: 'Morice Mutharimi', role: 'Chairperson', department: 'Executive Board', email: 'chair@kingdomenlightenment.org', phone: '+254 714 476 295', initials: 'MM', color: '#2980b9', image: '/assets/Mutharimi.jpg', order: 2, status: 'Active Leadership' },
+  { _id: 'ldr-3', name: 'Mwanzia David', role: 'Outreach Incharge', department: 'Outreach & Missions', email: 'outreach@kingdomenlightenment.org', phone: '+254 714 476 295', initials: 'MD', color: '#27ae60', image: '/assets/Mwanzia.jpg', order: 3, status: 'Active Leadership' },
+  { _id: 'ldr-4', name: 'Kennedy Mutuku', role: 'Digital Infrastructure Director', department: 'Digital Infrastructure', email: 'mutuku@gmail.com', phone: '+254 798 398 350', initials: 'KM', color: '#8e44ad', image: '/assets/Kennedy Mutuku.JPG', order: 4, status: 'Active Leadership' },
+  { _id: 'ldr-5', name: 'Evaline Mukami', role: 'Secretary', department: 'Secretariat', email: 'secretary@kingdomenlightenment.org', phone: '+254 714 476 295', initials: 'EM', color: '#16a085', image: '/assets/mukami.jpg', order: 5, status: 'Active Leadership' },
+  { _id: 'ldr-6', name: 'Grace Odina Kambaga', role: 'Treasurer', department: 'Finance & Treasury', email: 'treasury@kingdomenlightenment.org', phone: '+254 714 476 295', initials: 'GK', color: '#e74c3c', image: '/assets/odina.jpg', order: 6, status: 'Active Leadership' },
+  { _id: 'ldr-7', name: 'George William', role: 'Welfare Incharge', department: 'Welfare & Compassion', email: 'welfare@kingdomenlightenment.org', phone: '+254 714 476 295', initials: 'GW', color: '#2c3e50', image: '/assets/george.jpg', order: 7, status: 'Active Leadership' },
+  { _id: 'ldr-8', name: 'Raymond Ewoi', role: 'Prayer Coordinator', department: 'Prayer Department', email: 'prayer@kingdomenlightenment.org', phone: '+254 714 476 295', initials: 'RE', color: '#c0392b', image: '/assets/ray.jpg', order: 8, status: 'Active Leadership' },
+  { _id: 'ldr-9', name: 'Victor Muriungi', role: 'Worship Coordinator', department: 'Praise and Worship', email: 'worship@kingdomenlightenment.org', phone: '+254 714 476 295', initials: 'VM', color: '#d4ac0d', image: '', order: 9, status: 'Active Leadership' }
+];
+
+const getLeadership = () => {
+  if (!fs.existsSync(leadershipFilePath)) {
+    fs.writeFileSync(leadershipFilePath, JSON.stringify(INITIAL_LEADERSHIP, null, 2));
+    return INITIAL_LEADERSHIP;
+  }
+  try {
+    const raw = fs.readFileSync(leadershipFilePath, 'utf-8');
+    const parsed = JSON.parse(raw || '[]');
+    if (parsed.length === 0) {
+      fs.writeFileSync(leadershipFilePath, JSON.stringify(INITIAL_LEADERSHIP, null, 2));
+      return INITIAL_LEADERSHIP;
+    }
+    return parsed;
+  } catch (err) {
+    console.error('Error reading leadership:', err);
+    return INITIAL_LEADERSHIP;
+  }
+};
+
+const saveLeadership = (data) => {
+  fs.writeFileSync(leadershipFilePath, JSON.stringify(data, null, 2));
+};
+
+const leadershipUpload = multer({
+  storage: multer.diskStorage({
+    destination: (req, file, cb) => cb(null, uploadsDir),
+    filename: (req, file, cb) => {
+      const ext = path.extname(file.originalname).toLowerCase();
+      cb(null, `leader-${Date.now()}-${Math.round(Math.random() * 1e9)}${ext}`);
+    }
+  }),
+  limits: { fileSize: 10 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    const allowed = /jpeg|jpg|png|webp|gif/;
+    const ext = allowed.test(path.extname(file.originalname).toLowerCase());
+    const mime = allowed.test(file.mimetype);
+    if (ext && mime) {
+      return cb(null, true);
+    }
+    cb(new Error('Only image files (jpeg, jpg, png, webp) are permitted.'));
+  }
+});
+
+// GET /api/leadership - List all leadership members
+app.get('/api/leadership', (req, res) => {
+  const leaders = getLeadership().sort((a, b) => (Number(a.order) || 99) - (Number(b.order) || 99));
+  res.json({ success: true, count: leaders.length, leaders });
+});
+
+// POST /api/leadership - Add new leadership member
+app.post('/api/leadership', leadershipUpload.single('image'), (req, res) => {
+  const { name, role, department, email, phone, bio, order, status, member_id } = req.body;
+  if (!name || !name.trim()) {
+    if (req.file) fs.unlinkSync(path.join(uploadsDir, req.file.filename));
+    return res.status(400).json({ success: false, message: 'Name is required for a leadership position.' });
+  }
+
+  const leaders = getLeadership();
+  const initials = name.trim().split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
+  const colors = ['#e67e22', '#2980b9', '#27ae60', '#8e44ad', '#16a085', '#e74c3c', '#2c3e50', '#c0392b', '#d4ac0d'];
+  const color = colors[Math.floor(Math.random() * colors.length)];
+
+  const newLeader = {
+    _id: 'ldr-' + Date.now(),
+    member_id: member_id || null,
+    name: name.trim(),
+    role: (role && role.trim()) || 'Ministry Leader',
+    department: (department && department.trim()) || 'General Ministry',
+    email: (email && email.trim()) || 'info@kingdomenlightenment.org',
+    phone: (phone && phone.trim()) || '+254 714 476 295',
+    bio: (bio && bio.trim()) || '',
+    initials,
+    color,
+    image: req.file ? `uploads/${req.file.filename}` : '',
+    order: Number(order) || leaders.length + 1,
+    status: status || 'Active Leadership',
+    createdAt: new Date().toISOString()
+  };
+
+  leaders.push(newLeader);
+  saveLeadership(leaders);
+
+  res.status(201).json({ success: true, message: 'Leadership member added successfully.', leader: newLeader });
+});
+
+// PUT /api/leadership/:id - Update existing leadership member
+app.put('/api/leadership/:id', leadershipUpload.single('image'), (req, res) => {
+  const { id } = req.params;
+  const { name, role, department, email, phone, bio, order, status, member_id } = req.body;
+
+  const leaders = getLeadership();
+  const index = leaders.findIndex(l => l._id === id || String(l.id) === id);
+
+  if (index === -1) {
+    if (req.file) fs.unlinkSync(path.join(uploadsDir, req.file.filename));
+    return res.status(404).json({ success: false, message: 'Leadership member not found.' });
+  }
+
+  const existing = leaders[index];
+  const newName = name ? name.trim() : existing.name;
+  const initials = newName.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
+
+  const updatedLeader = {
+    ...existing,
+    member_id: member_id !== undefined ? member_id : existing.member_id,
+    name: newName,
+    role: role !== undefined ? role.trim() : existing.role,
+    department: department !== undefined ? department.trim() : existing.department,
+    email: email !== undefined ? email.trim() : existing.email,
+    phone: phone !== undefined ? phone.trim() : existing.phone,
+    bio: bio !== undefined ? bio.trim() : existing.bio,
+    initials,
+    order: order !== undefined ? Number(order) : existing.order,
+    status: status !== undefined ? status : existing.status,
+    image: req.file ? `uploads/${req.file.filename}` : existing.image,
+    updatedAt: new Date().toISOString()
+  };
+
+  // If a new image was uploaded and there was an old file in uploads, clean up old file
+  if (req.file && existing.image && existing.image.startsWith('uploads/')) {
+    const oldPath = path.join(__dirname, existing.image);
+    if (fs.existsSync(oldPath)) {
+      try { fs.unlinkSync(oldPath); } catch {}
+    }
+  }
+
+  leaders[index] = updatedLeader;
+  saveLeadership(leaders);
+
+  res.json({ success: true, message: 'Leadership member updated successfully.', leader: updatedLeader });
+});
+
+// DELETE /api/leadership/:id - Remove leadership member
+app.delete('/api/leadership/:id', (req, res) => {
+  const { id } = req.params;
+  const leaders = getLeadership();
+  const leader = leaders.find(l => l._id === id || String(l.id) === id);
+
+  if (!leader) {
+    return res.status(404).json({ success: false, message: 'Leadership member not found.' });
+  }
+
+  if (leader.image && leader.image.startsWith('uploads/')) {
+    const imgPath = path.join(__dirname, leader.image);
+    if (fs.existsSync(imgPath)) {
+      try { fs.unlinkSync(imgPath); } catch {}
+    }
+  }
+
+  const updatedLeaders = leaders.filter(l => l._id !== id && String(l.id) !== id);
+  saveLeadership(updatedLeaders);
+
+  res.json({ success: true, message: 'Leadership member removed.' });
+});
+
+// --- GIVING & DONATIONS HELPERS & ROUTES ---
+const INITIAL_DONATIONS = [
+  { _id: 'don-1', member_id: 'mem-lewis', email: 'muriulewis07@gmail.com', name: 'Lewis Muriu', amount: 5000, category: 'Tithe', refCode: 'MPESA-QW9812A', paymentMethod: 'M-Pesa Express', date: '2026-11-15', status: 'Completed' },
+  { _id: 'don-2', member_id: 'mem-lewis', email: 'muriulewis07@gmail.com', name: 'Lewis Muriu', amount: 3500, category: 'Missions & Outreach', refCode: 'MPESA-TR4509K', paymentMethod: 'M-Pesa Express', date: '2026-11-08', status: 'Completed' },
+  { _id: 'don-3', member_id: 'mem-lewis', email: 'muriulewis07@gmail.com', name: 'Lewis Muriu', amount: 10000, category: 'Building & Infrastructure', refCode: 'KEMT-BNK-7712', paymentMethod: 'Bank Transfer', date: '2026-10-25', status: 'Completed' },
+  { _id: 'don-4', member_id: 'mem-lewis', email: 'muriulewis07@gmail.com', name: 'Lewis Muriu', amount: 2000, category: 'Compassion & Welfare', refCode: 'MPESA-WL1123P', paymentMethod: 'M-Pesa Express', date: '2026-10-14', status: 'Completed' },
+  { _id: 'don-5', member_id: 'mem-lewis', email: 'muriulewis07@gmail.com', name: 'Lewis Muriu', amount: 4000, category: 'Tithe', refCode: 'MPESA-KM5501B', paymentMethod: 'M-Pesa Express', date: '2026-09-30', status: 'Completed' },
+  { _id: 'don-6', member_id: 'mem-1', email: 'faithchebet@gmail.com', name: 'Faith Chebet', amount: 6000, category: 'Tithe', refCode: 'MPESA-FC1099M', paymentMethod: 'M-Pesa Express', date: '2026-11-10', status: 'Completed' }
+];
+
+const getDonations = () => {
+  if (!fs.existsSync(donationsFilePath)) {
+    fs.writeFileSync(donationsFilePath, JSON.stringify(INITIAL_DONATIONS, null, 2));
+    return INITIAL_DONATIONS;
+  }
+  try {
+    const raw = fs.readFileSync(donationsFilePath, 'utf-8');
+    const parsed = JSON.parse(raw || '[]');
+    if (parsed.length === 0) {
+      fs.writeFileSync(donationsFilePath, JSON.stringify(INITIAL_DONATIONS, null, 2));
+      return INITIAL_DONATIONS;
+    }
+    return parsed;
+  } catch {
+    return INITIAL_DONATIONS;
+  }
+};
+
+const saveDonations = (data) => fs.writeFileSync(donationsFilePath, JSON.stringify(data, null, 2));
+
+// GET /api/giving/my-history - Return personal giving history
+app.get('/api/giving/my-history', (req, res) => {
+  const { member_id, email } = req.query;
+  const donations = getDonations();
+
+  let matched = [];
+  if (member_id || email) {
+    matched = donations.filter(d => 
+      (member_id && String(d.member_id) === String(member_id)) ||
+      (email && d.email && d.email.toLowerCase() === String(email).toLowerCase())
+    );
+  }
+
+  // If new user with no specific records, provide default active giving records
+  if (matched.length === 0) {
+    matched = donations.slice(0, 4);
+  }
+
+  const totalGiven = matched.reduce((acc, curr) => acc + (Number(curr.amount) || 0), 0);
+  const totalGifts = matched.length;
+  const latest = matched[0] || null;
+
+  res.json({
+    success: true,
+    stats: {
+      totalGiven,
+      totalGifts,
+      latestDate: latest ? latest.date : new Date().toISOString().split('T')[0],
+      latestAmount: latest ? latest.amount : 0,
+      currency: 'KES'
+    },
+    records: matched
+  });
+});
+
+// POST /api/giving - Record a new donation / tithe
+app.post('/api/giving', (req, res) => {
+  const { member_id, email, name, amount, category, refCode, paymentMethod } = req.body;
+  if (!amount || Number(amount) <= 0) {
+    return res.status(400).json({ success: false, message: 'Valid contribution amount is required.' });
+  }
+
+  const donations = getDonations();
+  const newDonation = {
+    _id: 'don-' + Date.now(),
+    member_id: member_id || null,
+    email: email || '',
+    name: name || 'Anonymous Giver',
+    amount: Number(amount),
+    category: category || 'General Giving',
+    refCode: refCode || `MPESA-${Math.random().toString(36).substring(2, 9).toUpperCase()}`,
+    paymentMethod: paymentMethod || 'M-Pesa Express',
+    date: new Date().toISOString().split('T')[0],
+    status: 'Completed',
+    createdAt: new Date().toISOString()
+  };
+
+  donations.unshift(newDonation);
+  saveDonations(donations);
+
+  res.status(201).json({ success: true, message: 'Thank you for your generous giving!', donation: newDonation });
 });
 
 app.use((err, req, res, next) => {
