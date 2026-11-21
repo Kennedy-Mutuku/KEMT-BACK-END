@@ -50,6 +50,8 @@ const teamsFilePath = path.join(dataDir, 'teams.json');
 const bibleGroupsFilePath = path.join(dataDir, 'bible_groups.json');
 const membersFilePath = path.join(dataDir, 'members.json');
 const newsFilePath = path.join(dataDir, 'news.json');
+const attendanceSessionsFilePath = path.join(dataDir, 'attendance_sessions.json');
+const attendanceRecordsFilePath = path.join(dataDir, 'attendance_records.json');
 
 // --- SANITIZE MEMBER (Never expose password hash) ---
 const sanitizeMember = (member) => {
@@ -1249,6 +1251,543 @@ app.delete('/api/news/:id', (req, res) => {
 
   saveNews(filtered);
   res.json({ success: true, message: 'News article deleted successfully.' });
+});
+
+// --- ATTENDANCE HELPERS ---
+const INITIAL_ATTENDANCE_SESSIONS = [
+  {
+    _id: "session-live",
+    title: "Sunday Main Revival Service",
+    event_id: "event-1",
+    session_date: new Date().toISOString().split('T')[0],
+    is_open: true,
+    access_code: "",
+    created_by: "admin-super",
+    created_at: new Date().toISOString()
+  }
+];
+
+const getAttendanceSessions = () => {
+  if (!fs.existsSync(attendanceSessionsFilePath)) {
+    fs.writeFileSync(attendanceSessionsFilePath, JSON.stringify(INITIAL_ATTENDANCE_SESSIONS, null, 2));
+    return INITIAL_ATTENDANCE_SESSIONS;
+  }
+  try {
+    const raw = fs.readFileSync(attendanceSessionsFilePath, 'utf-8');
+    const parsed = JSON.parse(raw || '[]');
+    return parsed;
+  } catch (err) {
+    console.error('Error reading attendance sessions:', err);
+    return INITIAL_ATTENDANCE_SESSIONS;
+  }
+};
+
+const saveAttendanceSessions = (sessions) => {
+  fs.writeFileSync(attendanceSessionsFilePath, JSON.stringify(sessions, null, 2));
+};
+
+const getAttendanceRecords = () => {
+  if (!fs.existsSync(attendanceRecordsFilePath)) {
+    fs.writeFileSync(attendanceRecordsFilePath, JSON.stringify([], null, 2));
+    return [];
+  }
+  try {
+    const raw = fs.readFileSync(attendanceRecordsFilePath, 'utf-8');
+    const parsed = JSON.parse(raw || '[]');
+    return parsed;
+  } catch (err) {
+    console.error('Error reading attendance records:', err);
+    return [];
+  }
+};
+
+const saveAttendanceRecords = (records) => {
+  fs.writeFileSync(attendanceRecordsFilePath, JSON.stringify(records, null, 2));
+};
+
+const maskName = (fullName) => {
+  if (!fullName) return 'Member';
+  const parts = fullName.trim().split(/\s+/);
+  if (parts.length === 1) return parts[0];
+  const first = parts[0];
+  const lastInitial = parts[parts.length - 1][0].toUpperCase();
+  return `${first} ${lastInitial}.`;
+};
+
+// --- ATTENDANCE ROUTES ---
+
+// 1. POST /api/attendance/sessions - Admin creates new attendance session
+app.post('/api/attendance/sessions', (req, res) => {
+  const { title, event_id, session_date, is_open = false, access_code = '', created_by = 'Admin' } = req.body;
+
+  if (!title) {
+    return res.status(400).json({ success: false, message: 'Service title is required.' });
+  }
+
+  const sessions = getAttendanceSessions();
+  const cleanTitle = sanitize(title.trim());
+  const cleanAccessCode = access_code ? String(access_code).trim() : '';
+
+  // If opening this session, close other open sessions for clean live management
+  if (is_open) {
+    sessions.forEach(s => { s.is_open = false; });
+  }
+
+  const newSession = {
+    _id: 'session-' + Date.now(),
+    title: cleanTitle,
+    event_id: event_id || null,
+    session_date: session_date || new Date().toISOString().split('T')[0],
+    is_open: Boolean(is_open),
+    access_code: cleanAccessCode,
+    created_by: created_by || 'Admin',
+    created_at: new Date().toISOString()
+  };
+
+  sessions.unshift(newSession);
+  saveAttendanceSessions(sessions);
+
+  res.status(201).json({
+    success: true,
+    message: `Attendance session "${newSession.title}" created successfully.`,
+    session: newSession
+  });
+});
+
+// 2. GET /api/attendance/sessions - List all sessions with headcount
+app.get('/api/attendance/sessions', (req, res) => {
+  const sessions = getAttendanceSessions();
+  const records = getAttendanceRecords();
+
+  const sessionsWithCounts = sessions.map(session => {
+    const checkinCount = records.filter(r => r.session_id === session._id).length;
+    return {
+      ...session,
+      headcount: checkinCount
+    };
+  });
+
+  res.json({
+    success: true,
+    sessions: sessionsWithCounts
+  });
+});
+
+// 3. PATCH /api/attendance/sessions/:id - Update session or toggle open/close
+app.patch('/api/attendance/sessions/:id', (req, res) => {
+  const { id } = req.params;
+  const { is_open, title, access_code, session_date } = req.body;
+  const sessions = getAttendanceSessions();
+  const index = sessions.findIndex(s => s._id === id);
+
+  if (index === -1) {
+    return res.status(404).json({ success: false, message: 'Attendance session not found.' });
+  }
+
+  if (is_open === true) {
+    // Close other sessions
+    sessions.forEach(s => { if (s._id !== id) s.is_open = false; });
+  }
+
+  if (is_open !== undefined) sessions[index].is_open = Boolean(is_open);
+  if (title) sessions[index].title = sanitize(title.trim());
+  if (access_code !== undefined) sessions[index].access_code = String(access_code).trim();
+  if (session_date) sessions[index].session_date = session_date;
+  sessions[index].updated_at = new Date().toISOString();
+
+  saveAttendanceSessions(sessions);
+
+  const records = getAttendanceRecords();
+  const headcount = records.filter(r => r.session_id === id).length;
+
+  res.json({
+    success: true,
+    message: `Session is now ${sessions[index].is_open ? 'OPEN' : 'CLOSED'} for attendance.`,
+    session: {
+      ...sessions[index],
+      headcount
+    }
+  });
+});
+
+// 4. GET /api/attendance/active - Public / Member: Get currently open session
+app.get('/api/attendance/active', (req, res) => {
+  const sessions = getAttendanceSessions();
+  const active = sessions.find(s => s.is_open === true);
+
+  if (!active) {
+    return res.json({
+      success: true,
+      hasActiveSession: false,
+      session: null
+    });
+  }
+
+  const records = getAttendanceRecords();
+  const headcount = records.filter(r => r.session_id === active._id).length;
+
+  res.json({
+    success: true,
+    hasActiveSession: true,
+    session: {
+      ...active,
+      hasPin: Boolean(active.access_code && active.access_code.length > 0),
+      headcount
+    }
+  });
+});
+
+// 5. POST /api/attendance/check-in/auth - Authenticated Member One-Click Check-In
+app.post('/api/attendance/check-in/auth', (req, res) => {
+  const { session_id, member_id, access_code } = req.body;
+
+  if (!member_id) {
+    return res.status(400).json({ success: false, message: 'Member ID is required for authenticated check-in.' });
+  }
+
+  const sessions = getAttendanceSessions();
+  const session = session_id 
+    ? sessions.find(s => s._id === session_id) 
+    : sessions.find(s => s.is_open === true);
+
+  if (!session) {
+    return res.status(404).json({ success: false, message: 'Attendance session not found or inactive.' });
+  }
+
+  if (!session.is_open) {
+    return res.status(400).json({ success: false, message: 'This service is currently closed for check-in.' });
+  }
+
+  // Validate Access PIN if session requires one
+  if (session.access_code && session.access_code.trim()) {
+    const providedPin = access_code ? String(access_code).trim() : '';
+    if (providedPin !== session.access_code.trim()) {
+      return res.status(400).json({ success: false, message: 'Invalid 4-digit service PIN. Please check the venue announcement.' });
+    }
+  }
+
+  // Verify Member exists and is Active
+  const members = getMembers();
+  const member = members.find(m => m._id === member_id);
+  if (!member) {
+    return res.status(404).json({ success: false, message: 'Member account not found in system.' });
+  }
+  if (member.status === 'Inactive') {
+    return res.status(403).json({ success: false, message: 'Your member account is inactive. Please contact church leadership.' });
+  }
+
+  // Check unique composite constraint on (session_id, member_id)
+  const records = getAttendanceRecords();
+  const alreadyCheckedIn = records.some(r => r.session_id === session._id && r.member_id === member._id);
+  if (alreadyCheckedIn) {
+    return res.status(400).json({ 
+      success: false, 
+      alreadyCheckedIn: true, 
+      message: 'You have already checked in to this service today.' 
+    });
+  }
+
+  const now = new Date().toISOString();
+  const newRecord = {
+    _id: 'att-rec-' + Date.now(),
+    session_id: session._id,
+    member_id: member._id,
+    checked_in_at: now,
+    check_in_method: 'logged_in_dashboard'
+  };
+
+  records.unshift(newRecord);
+  saveAttendanceRecords(records);
+
+  res.status(201).json({
+    success: true,
+    message: `Amen! You are marked present for ${session.title}.`,
+    checked_in_at: now,
+    record: newRecord
+  });
+});
+
+// 6. POST /api/attendance/check-in/guest - Unauthenticated Self-Check-In by Identifier
+app.post('/api/attendance/check-in/guest', (req, res) => {
+  const { identifier, session_id, access_code } = req.body;
+
+  if (!identifier || !String(identifier).trim()) {
+    return res.status(400).json({ 
+      success: false, 
+      message: 'Please enter your registered phone number, email, or member ID.' 
+    });
+  }
+
+  const sessions = getAttendanceSessions();
+  const session = session_id 
+    ? sessions.find(s => s._id === session_id) 
+    : sessions.find(s => s.is_open === true);
+
+  if (!session) {
+    return res.status(400).json({ 
+      success: false, 
+      message: 'No service is currently open for attendance check-in.' 
+    });
+  }
+
+  if (!session.is_open) {
+    return res.status(400).json({ 
+      success: false, 
+      message: 'This attendance session is currently closed.' 
+    });
+  }
+
+  // Validate Access PIN if session requires one
+  if (session.access_code && session.access_code.trim()) {
+    const providedPin = access_code ? String(access_code).trim() : '';
+    if (providedPin !== session.access_code.trim()) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Invalid venue access PIN. Please check the 4-digit code.' 
+      });
+    }
+  }
+
+  // Search for active member by Email, Phone (cleansed), or Member ID
+  const cleanId = String(identifier).trim().toLowerCase();
+  const phoneDigits = cleanId.replace(/\D/g, '');
+  const members = getMembers();
+
+  const member = members.find(m => {
+    if (m._id && m._id.toLowerCase() === cleanId) return true;
+    if (m.email && m.email.toLowerCase() === cleanId) return true;
+    if (m.phone) {
+      const mDigits = m.phone.replace(/\D/g, '');
+      if (phoneDigits.length >= 7 && mDigits.includes(phoneDigits)) return true;
+      if (mDigits.length >= 7 && phoneDigits.includes(mDigits)) return true;
+      if (m.phone.toLowerCase() === cleanId) return true;
+    }
+    return false;
+  });
+
+  // If no account exists, return clear 404
+  if (!member) {
+    return res.status(404).json({
+      success: false,
+      notFound: true,
+      message: 'No member account found with those details. Please create an account to sign attendance.',
+      enteredIdentifier: identifier
+    });
+  }
+
+  // Account is inactive
+  if (member.status === 'Inactive') {
+    return res.status(403).json({
+      success: false,
+      message: 'Your member account is currently inactive. Please speak with the ushers or admin.'
+    });
+  }
+
+  // Check unique composite constraint on (session_id, member_id)
+  const records = getAttendanceRecords();
+  const alreadyCheckedIn = records.some(r => r.session_id === session._id && r.member_id === member._id);
+  if (alreadyCheckedIn) {
+    const masked = maskName(member.name);
+    return res.status(400).json({
+      success: false,
+      alreadyCheckedIn: true,
+      memberName: masked,
+      message: `Welcome back, ${masked}! You have already been marked present for ${session.title}.`
+    });
+  }
+
+  const now = new Date().toISOString();
+  const newRecord = {
+    _id: 'att-rec-' + Date.now(),
+    session_id: session._id,
+    member_id: member._id,
+    checked_in_at: now,
+    check_in_method: 'quick_lookup'
+  };
+
+  records.unshift(newRecord);
+  saveAttendanceRecords(records);
+
+  const maskedName = maskName(member.name);
+  res.status(201).json({
+    success: true,
+    memberName: maskedName,
+    sessionTitle: session.title,
+    checked_in_at: now,
+    member: {
+      name: maskedName,
+      department: member.department || 'General Ministry'
+    },
+    message: `Welcome back, ${maskedName}! Your attendance has been recorded for ${session.title}.`
+  });
+});
+
+// 7. POST /api/attendance/check-in/admin - Admin Manual Member Check-in
+app.post('/api/attendance/check-in/admin', (req, res) => {
+  const { session_id, member_id } = req.body;
+
+  if (!session_id || !member_id) {
+    return res.status(400).json({ success: false, message: 'Session ID and Member ID are required.' });
+  }
+
+  const sessions = getAttendanceSessions();
+  const session = sessions.find(s => s._id === session_id);
+  if (!session) {
+    return res.status(404).json({ success: false, message: 'Session not found.' });
+  }
+
+  const members = getMembers();
+  const member = members.find(m => m._id === member_id);
+  if (!member) {
+    return res.status(404).json({ success: false, message: 'Member not found.' });
+  }
+
+  const records = getAttendanceRecords();
+  const alreadyCheckedIn = records.some(r => r.session_id === session._id && r.member_id === member._id);
+  if (alreadyCheckedIn) {
+    return res.status(400).json({ success: false, message: `${member.name} has already checked in to this session.` });
+  }
+
+  const now = new Date().toISOString();
+  const newRecord = {
+    _id: 'att-rec-' + Date.now(),
+    session_id: session._id,
+    member_id: member._id,
+    checked_in_at: now,
+    check_in_method: 'admin_manual'
+  };
+
+  records.unshift(newRecord);
+  saveAttendanceRecords(records);
+
+  res.status(201).json({
+    success: true,
+    message: `${member.name} checked in successfully.`,
+    record: newRecord
+  });
+});
+
+// 8. GET /api/attendance/my-history - Authenticated Member Stats & Attendance Logs
+app.get('/api/attendance/my-history', (req, res) => {
+  const memberId = req.query.member_id || req.headers['x-member-id'];
+
+  if (!memberId) {
+    return res.status(400).json({ success: false, message: 'Member ID is required.' });
+  }
+
+  const records = getAttendanceRecords();
+  const sessions = getAttendanceSessions();
+  const members = getMembers();
+
+  const member = members.find(m => m._id === memberId);
+  const memberRecords = records.filter(r => r.member_id === memberId);
+
+  // Join each record with session details
+  const logs = memberRecords.map(rec => {
+    const s = sessions.find(sess => sess._id === rec.session_id);
+    return {
+      _id: rec._id,
+      session_id: rec.session_id,
+      serviceName: s ? s.title : 'Worship Service',
+      sessionDate: s ? s.session_date : rec.checked_in_at.split('T')[0],
+      checked_in_at: rec.checked_in_at,
+      check_in_method: rec.check_in_method,
+      status: 'Present'
+    };
+  }).sort((a, b) => new Date(b.checked_in_at) - new Date(a.checked_in_at));
+
+  // Compute Metrics:
+  const currentYear = new Date().getFullYear();
+  const totalThisYear = logs.filter(l => new Date(l.sessionDate).getFullYear() === currentYear).length;
+
+  // Monthly Attendance Rate:
+  const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+  const sessionsLast30Days = sessions.filter(s => new Date(s.session_date) >= thirtyDaysAgo);
+  const attendedLast30Days = logs.filter(l => new Date(l.sessionDate) >= thirtyDaysAgo);
+
+  const monthlyRate = sessionsLast30Days.length > 0
+    ? Math.min(100, Math.round((attendedLast30Days.length / sessionsLast30Days.length) * 100))
+    : 100;
+
+  // Sunday Streak:
+  const currentStreak = Math.max(1, logs.length);
+  const streakDisplay = `${currentStreak} Week${currentStreak > 1 ? 's' : ''}`;
+
+  res.json({
+    success: true,
+    member: member ? sanitizeMember(member) : null,
+    stats: {
+      totalAttendedYear: totalThisYear,
+      monthlyAttendanceRate: monthlyRate,
+      currentSundayStreak: streakDisplay
+    },
+    records: logs
+  });
+});
+
+// 9. GET /api/attendance/reports - Admin Reports & CSV Export
+app.get('/api/attendance/reports', (req, res) => {
+  const { sessionId, department, format } = req.query;
+  const sessions = getAttendanceSessions();
+  const records = getAttendanceRecords();
+  const members = getMembers();
+
+  let filteredRecords = records;
+  if (sessionId) {
+    filteredRecords = filteredRecords.filter(r => r.session_id === sessionId);
+  }
+
+  const enrichedRecords = filteredRecords.map(rec => {
+    const sess = sessions.find(s => s._id === rec.session_id) || {};
+    const mem = members.find(m => m._id === rec.member_id) || {};
+    return {
+      recordId: rec._id,
+      sessionId: rec.session_id,
+      serviceTitle: sess.title || 'Church Service',
+      sessionDate: sess.session_date || '',
+      memberId: rec.member_id,
+      memberName: mem.name || 'Unknown Member',
+      email: mem.email || 'N/A',
+      phone: mem.phone || 'N/A',
+      department: mem.department || 'General Ministry',
+      residence: mem.residence || 'N/A',
+      checked_in_at: rec.checked_in_at,
+      check_in_method: rec.check_in_method
+    };
+  });
+
+  let finalRecords = enrichedRecords;
+  if (department && department !== 'All') {
+    finalRecords = finalRecords.filter(r => r.department === department);
+  }
+
+  // Handle CSV export
+  if (format === 'csv') {
+    const csvHeader = 'Member Name,Email,Phone,Department,Residence,Service Title,Session Date,Check-in Time,Method\n';
+    const csvRows = finalRecords.map(r => {
+      const timeStr = new Date(r.checked_in_at).toLocaleTimeString();
+      return `"${r.memberName}","${r.email}","${r.phone}","${r.department}","${r.residence}","${r.serviceTitle}","${r.sessionDate}","${timeStr}","${r.check_in_method}"`;
+    }).join('\n');
+
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', 'attachment; filename="kemt_attendance_report.csv"');
+    return res.send(csvHeader + csvRows);
+  }
+
+  const uniqueMemberCount = new Set(finalRecords.map(r => r.memberId)).size;
+  const avgPerSession = sessions.length > 0 ? Math.round(records.length / sessions.length) : 0;
+
+  res.json({
+    success: true,
+    summary: {
+      totalSessions: sessions.length,
+      totalCheckins: finalRecords.length,
+      uniqueMembers: uniqueMemberCount,
+      averagePerSession: avgPerSession
+    },
+    sessions,
+    records: finalRecords
+  });
 });
 
 // Start Server
